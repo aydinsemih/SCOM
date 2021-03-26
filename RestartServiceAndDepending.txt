@@ -1,0 +1,106 @@
+'################################################################
+'#								#
+'# 14.11.2012 / (c) http://blog.scomfaq.ch			#
+'# Version 1.0							#
+'#								#
+'#Script restarts a defined Windows service and it's 		#
+'#depending services and will set the status			#
+'#of each service to the status it was before			#
+'#restarting the services.					#
+'################################################################
+Option Explicit
+Dim oServiceRef, oWMIService, oServiceList, oServiceRefLoop
+ReDim aServices(0)
+Dim vServiceRefName, vServiceStatus, vComputer
+Dim i
+
+'Declare variables
+vServiceRefName = "Spooler"	'Main service name you want to restart
+vComputer = "."		'Computername "." means the server where the script is being executed
+Set oWMIService = GetObject("winmgmts:{impersonationLevel=impersonate}!\\" & vComputer & "\root\cimv2")
+
+'-----------------------------------------
+'Get depending services
+Set oServiceList = oWMIService.ExecQuery("Associators of {Win32_Service.Name='" & vServiceRefName & "'} Where AssocClass=Win32_DependentService Role=Antecedent")
+i = 0
+
+For Each oServiceRef In oServiceList
+	Set oServiceRefLoop = oServiceRef
+	'WScript.Echo oServiceRefLoop.DisplayName  & vbTab & oServiceRefLoop.State 			'Just for testing
+	'Get status
+	ReDim Preserve aServices(i)
+	aServices(i) = oServiceRefLoop.State
+	'Stop depending service if it is running
+	If aServices(i) = "Running" Then
+		oServiceRefLoop.StopService()
+		Do While CheckServiceState(oServiceRefLoop.Name) <> "Stopped"
+			WScript.Sleep 1000			
+			'WScript.Echo CheckServiceState(oServiceRefLoop.Name)
+		Loop
+		
+	End If
+	
+	i = i + 1
+Next
+
+'-----------------------------------------
+'Get main service
+Set oServiceList = oWMIService.ExecQuery("Select * from Win32_Service Where Name = '" & vServiceRefName & "'")
+
+For Each oServiceRef In oServiceList
+	Set oServiceRefLoop = oServiceRef
+	'WScript.Echo oServiceRefLoop.DisplayName  & vbTab & oServiceRefLoop.State 			'Just for testing
+	
+	'Stop main service
+	oServiceRefLoop.StopService()
+	Do While CheckServiceState(oServiceRefLoop.Name) <> "Stopped"
+		WScript.Sleep 1000			
+			
+	Loop
+Next
+
+
+'-----------------------------------------
+'-------------- Restart ------------------
+'-----------------------------------------
+'WScript.Sleep 5000 			'Just for testing
+
+
+'Restart main service
+Set oServiceList = oWMIService.ExecQuery("Select * from Win32_Service Where Name = '" & vServiceRefName & "'")
+
+For Each oServiceRef In oServiceList
+	'WScript.Echo oServiceRef.DisplayName  & vbTab & oServiceRef.State 			'Just for testing
+	
+	'Stop main service
+	oServiceRef.StartService()
+Next
+
+
+'Start depending services
+Set oServiceList = oWMIService.ExecQuery("Associators of {Win32_Service.Name='" & vServiceRefName & "'} Where AssocClass=Win32_DependentService Role=Antecedent")
+i = 0
+
+For Each oServiceRef In oServiceList
+	'WScript.Echo oServiceRef.DisplayName  & vbTab & oServiceRef.State 			'Just for testing
+	'Start depending service if it's status was running before
+	If aServices(i) = "Running" Then
+		oServiceRef.StartService()
+	End If
+	
+	i = i + 1
+Next
+
+
+Function CheckServiceState(fServiceName)
+	Set oWMIService = GetObject("winmgmts:{impersonationLevel=impersonate}!\\" & vComputer & "\root\cimv2")
+	Set oServiceList = oWMIService.ExecQuery("Select * from Win32_Service Where Name = '" & fServiceName & "'")
+	
+	For Each oServiceRef In oServiceList
+		CheckServiceState = oServiceRef.State
+
+	Next
+
+End Function
+
+
